@@ -16,3 +16,9 @@ npm run dev     # local dev server
 npm test        # engine + puzzle tests
 npm run build   # static build into app/dist
 ```
+
+## Live
+
+https://pilpel-dobby.github.io/shabbat-clocks-game/
+
+Deployed by pushing the contents of `app/dist` (plus `.nojekyll`) to the `gh-pages` branch.
