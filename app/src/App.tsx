@@ -5,6 +5,64 @@ import { puzzles } from "./puzzles";
 import type { Difficulty } from "./puzzles";
 
 const ONBOARDING_SEEN_KEY = "shabbat-clocks-onboarding-seen";
+const ACTIVE_PUZZLE_KEY = "shabbat-clocks-active-puzzle";
+const puzzleKey = (id: string) => `shabbat-clocks-puzzle-${id}`;
+
+// localStorage can throw (blocked storage, some private modes). The game must keep working without it.
+const storage = {
+  get(key: string): string | null {
+    try {
+      return window.localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  set(key: string, value: string) {
+    try {
+      window.localStorage.setItem(key, value);
+    } catch {
+      // ignore
+    }
+  },
+  remove(key: string) {
+    try {
+      window.localStorage.removeItem(key);
+    } catch {
+      // ignore
+    }
+  },
+};
+
+/** Load a saved clock configuration, only if it still fits the puzzle (same clocks, 24 boolean teeth). */
+function loadSavedClocks(p: (typeof puzzles)[number]): Clock[] | null {
+  const saved = storage.get(puzzleKey(p.id));
+  if (!saved) return null;
+  try {
+    const parsed = JSON.parse(saved) as Clock[];
+    if (!Array.isArray(parsed) || parsed.length !== p.initialClocks.length) return null;
+    const expectedIds = p.initialClocks.map((c) => c.id).sort().join("|");
+    const savedIds = parsed.map((c) => c?.id).sort().join("|");
+    if (expectedIds !== savedIds) return null;
+    const ok = parsed.every(
+      (c) =>
+        Array.isArray(c.teeth) &&
+        c.teeth.length === 24 &&
+        c.teeth.every((t) => typeof t === "boolean") &&
+        Number.isInteger(c.initialPosition)
+    );
+    if (!ok) return null;
+    // Names/colors always come from the puzzle definition, so copy fixes reach saved games too
+    return parsed.map((c) => {
+      const def = p.initialClocks.find((d) => d.id === c.id)!;
+      return { ...def, teeth: c.teeth };
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Clock names carry their original role in parentheses ("(ראשי)"); the role changes when clocks are reordered. */
+const displayName = (name: string) => name.replace(/\s*\([^)]*\)\s*$/, "");
 
 const difficultyClass: Record<Difficulty, string> = {
   "קל": "easy",
@@ -13,7 +71,10 @@ const difficultyClass: Record<Difficulty, string> = {
 };
 
 export default function App() {
-  const [activePuzzleIndex, setActivePuzzleIndex] = useState<number>(0);
+  const [activePuzzleIndex, setActivePuzzleIndex] = useState<number>(() => {
+    const saved = Number(storage.get(ACTIVE_PUZZLE_KEY));
+    return Number.isInteger(saved) && saved >= 0 && saved < puzzles.length ? saved : 0;
+  });
   const puzzle = puzzles[activePuzzleIndex];
   const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
   const [solvedPuzzles, setSolvedPuzzles] = useState<Record<string, boolean>>({});
@@ -23,24 +84,32 @@ export default function App() {
     const checkSolved = () => {
       const status: Record<string, boolean> = {};
       puzzles.forEach((p) => {
-        const saved = localStorage.getItem(`shabbat-clocks-puzzle-${p.id}`);
-        if (saved) {
-          try {
-            const parsed = JSON.parse(saved) as Clock[];
-            if (Array.isArray(parsed) && parsed.length === p.initialClocks.length) {
-              const result = simulate(parsed, p.simulationDuration);
-              status[p.id] = evaluateSolution(result.timeline, p.targetTimeline);
-              return;
-            }
-          } catch {
-            // fallback
-          }
-        }
-        status[p.id] = false;
+        const saved = loadSavedClocks(p);
+        status[p.id] = saved
+          ? evaluateSolution(simulate(saved, p.simulationDuration).timeline, p.targetTimeline)
+          : false;
       });
       setSolvedPuzzles(status);
     };
     checkSolved();
+  }, [activePuzzleIndex]);
+
+  // Remember the open puzzle across reloads
+  useEffect(() => {
+    storage.set(ACTIVE_PUZZLE_KEY, String(activePuzzleIndex));
+  }, [activePuzzleIndex]);
+
+  // Keep the active tab visible in the horizontally scrolling tab bar (mobile)
+  const tabsRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const nav = tabsRef.current;
+    const tab = nav?.querySelector<HTMLElement>(".tab-btn.active");
+    if (!nav || !tab || nav.scrollWidth <= nav.clientWidth) return;
+    const navBox = nav.getBoundingClientRect();
+    const tabBox = tab.getBoundingClientRect();
+    if (tabBox.left < navBox.left || tabBox.right > navBox.right) {
+      nav.scrollBy({ left: tabBox.left + tabBox.width / 2 - (navBox.left + navBox.width / 2) });
+    }
   }, [activePuzzleIndex]);
 
   const goToPuzzle = (idx: number) => {
@@ -48,11 +117,21 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  // Return keyboard focus to the help button when the dialog closes
+  const helpBtnRef = useRef<HTMLButtonElement | null>(null);
+  const closeHelp = () => {
+    setShowHelpModal(false);
+    helpBtnRef.current?.focus();
+  };
+
   // Close the help modal with Escape
   useEffect(() => {
     if (!showHelpModal) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setShowHelpModal(false);
+      if (e.key === "Escape") {
+        setShowHelpModal(false);
+        helpBtnRef.current?.focus();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -83,7 +162,7 @@ export default function App() {
         {solvedCount === puzzles.length && " 🏆"}
       </div>
       <div className="tabs-container">
-        <nav className="puzzle-tabs" aria-label="בחירת חידה">
+        <nav className="puzzle-tabs" aria-label="בחירת חידה" ref={tabsRef}>
           {puzzles.map((p, idx) => (
             <button
               key={p.id}
@@ -99,6 +178,7 @@ export default function App() {
         </nav>
         <button
           className="tab-btn help-btn"
+          ref={helpBtnRef}
           onClick={() => setShowHelpModal(true)}
         >
           ℹ️ מדריך חוקים ואודות
@@ -131,7 +211,7 @@ export default function App() {
 
       {/* Help & About Modal */}
       {showHelpModal && (
-        <div className="modal-overlay" onClick={() => setShowHelpModal(false)}>
+        <div className="modal-overlay" onClick={closeHelp}>
           <div
             className="modal-content card"
             role="dialog"
@@ -141,7 +221,7 @@ export default function App() {
           >
             <div className="modal-header">
               <h3 id="help-modal-title">מדריך המשחק: שעוני שבת מכניים</h3>
-              <button className="icon-btn" aria-label="סגירה" onClick={() => setShowHelpModal(false)} autoFocus>✕</button>
+              <button className="icon-btn" aria-label="סגירה" onClick={closeHelp} autoFocus>✕</button>
             </div>
             <div className="modal-body">
               <p>
@@ -188,7 +268,7 @@ export default function App() {
               </ul>
             </div>
             <div className="modal-footer">
-              <button className="tab-btn active" onClick={() => setShowHelpModal(false)}>הבנתי, תודה!</button>
+              <button className="tab-btn active" onClick={closeHelp}>הבנתי, תודה!</button>
             </div>
           </div>
         </div>
@@ -217,20 +297,9 @@ interface PuzzleWorkspaceProps {
 
 function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWorkspaceProps) {
   // State for the clocks of the active puzzle, initialized lazily to avoid cascading effect
-  const [clocks, setClocks] = useState<Clock[]>(() => {
-    const saved = localStorage.getItem(`shabbat-clocks-puzzle-${puzzle.id}`);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as Clock[];
-        if (Array.isArray(parsed) && parsed.length === puzzle.initialClocks.length) {
-          return parsed;
-        }
-      } catch {
-        // fallback
-      }
-    }
-    return JSON.parse(JSON.stringify(puzzle.initialClocks)) as Clock[];
-  });
+  const [clocks, setClocks] = useState<Clock[]>(
+    () => loadSavedClocks(puzzle) ?? (JSON.parse(JSON.stringify(puzzle.initialClocks)) as Clock[])
+  );
 
   // Simulation results. The engine is tiny (<= 72 ticks x 3 clocks), so it runs
   // synchronously on every change for instant feedback (no debounce/spinner).
@@ -249,9 +318,9 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
   const matchPercent = Math.round((matchCount / puzzle.simulationDuration) * 100);
 
   // Onboarding is expanded on the very first visit only
-  const [onboardingOpen] = useState<boolean>(() => localStorage.getItem(ONBOARDING_SEEN_KEY) === null);
+  const [onboardingOpen] = useState<boolean>(() => storage.get(ONBOARDING_SEEN_KEY) === null);
   useEffect(() => {
-    localStorage.setItem(ONBOARDING_SEEN_KEY, "1");
+    storage.set(ONBOARDING_SEEN_KEY, "1");
   }, []);
 
   // Hover state to show details for a specific hour
@@ -269,7 +338,7 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
   // Persist clocks state in localStorage when it changes
   useEffect(() => {
     if (clocks.length > 0) {
-      localStorage.setItem(`shabbat-clocks-puzzle-${puzzle.id}`, JSON.stringify(clocks));
+      storage.set(puzzleKey(puzzle.id), JSON.stringify(clocks));
     }
   }, [clocks, puzzle.id]);
 
@@ -311,11 +380,30 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
 
   // Handler for toggle/drag teeth
   const handleToothState = (clockId: string, toothIndex: number, targetState: boolean) => {
+    lastToothRef.current = toothIndex;
     setClocks((prevClocks) =>
       prevClocks.map((clock) => {
         if (clock.id !== clockId) return clock;
         const newTeeth = [...clock.teeth];
         newTeeth[toothIndex] = targetState;
+        return { ...clock, teeth: newTeeth };
+      })
+    );
+  };
+
+  // While dragging, fill every tooth between the previous and current one, so a fast
+  // mouse/finger movement (or a dropped move event) doesn't skip teeth.
+  const lastToothRef = useRef<number | null>(null);
+  const drawToTooth = (clockId: string, toothIndex: number, targetState: boolean) => {
+    const from = lastToothRef.current ?? toothIndex;
+    lastToothRef.current = toothIndex;
+    const lo = Math.min(from, toothIndex);
+    const hi = Math.max(from, toothIndex);
+    setClocks((prevClocks) =>
+      prevClocks.map((clock) => {
+        if (clock.id !== clockId) return clock;
+        const newTeeth = [...clock.teeth];
+        for (let i = lo; i <= hi; i++) newTeeth[i] = targetState;
         return { ...clock, teeth: newTeeth };
       })
     );
@@ -331,7 +419,7 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
 
   const handleMouseEnterTooth = (clockId: string, toothIndex: number) => {
     if (isDrawing && activeClockIdRef.current === clockId) {
-      handleToothState(clockId, toothIndex, drawValue);
+      drawToTooth(clockId, toothIndex, drawValue);
     }
   };
 
@@ -374,7 +462,7 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
 
       if (elementClockId === clockId && elementToothIndexAttr !== null) {
         const tIdx = parseInt(elementToothIndexAttr, 10);
-        handleToothState(clockId, tIdx, drawValue);
+        drawToTooth(clockId, tIdx, drawValue);
       }
     }
   };
@@ -394,7 +482,7 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
 
   // Reset current puzzle
   const resetPuzzle = () => {
-    localStorage.removeItem(`shabbat-clocks-puzzle-${puzzle.id}`);
+    storage.remove(puzzleKey(puzzle.id));
     const clonedClocks = JSON.parse(JSON.stringify(puzzle.initialClocks)) as Clock[];
     setClocks(clonedClocks);
     setHoveredHour(null);
@@ -507,9 +595,9 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
                         style={{ color: clock.color, backgroundColor: clock.color }}
                       ></span>
                       <span className="clock-name">
-                        {clock.name}
+                        {displayName(clock.name)}
                         <span className="clock-source">
-                          {idx === 0 ? "מחובר לחשמל הראשי" : `מקבל חשמל מ${clocks[idx - 1]?.name.split(" (")[0] || ""}`}
+                          {idx === 0 ? "מחובר לחשמל הראשי" : `מקבל חשמל מ${displayName(clocks[idx - 1]?.name ?? "")}`}
                         </span>
                       </span>
                     </div>
@@ -564,7 +652,7 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
                             title={`שעה ${tIdx.toString().padStart(2, "0")}:00 - לחצו וגררו לשינוי`}
                             role="switch"
                             aria-checked={isToothOn}
-                            aria-label={`${clock.name}, שן ${tIdx.toString().padStart(2, "0")}:00`}
+                            aria-label={`${displayName(clock.name)}, שן ${tIdx.toString().padStart(2, "0")}:00`}
                             tabIndex={0}
                             onKeyDown={(e) => {
                               if (e.key === " " || e.key === "Enter") {
@@ -584,7 +672,11 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
                             onMouseEnter={() => handleMouseEnterTooth(clock.id, tIdx)}
                             onTouchStart={() => handleTouchStart(clock.id, tIdx, isToothOn)}
                             onTouchMove={(e) => handleTouchMove(e, clock.id)}
-                            onTouchEnd={handleMouseUpOrLeave}
+                            onTouchEnd={(e) => {
+                              // Stop the browser's emulated mousedown after a tap, which would toggle the tooth back
+                              if (e.cancelable) e.preventDefault();
+                              handleMouseUpOrLeave();
+                            }}
                           />
                         );
                       })}
@@ -622,12 +714,14 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
                 <button
                   className="icon-btn"
                   title="שעה קודמת"
+                  aria-label="שעה קודמת"
                   onClick={() => {
                     setIsPlaying(false);
                     setSelectedHour((prev) => (prev - 1 + puzzle.simulationDuration) % puzzle.simulationDuration);
                   }}
                 >
-                  ⏮
+                  {/* RTL: time runs right-to-left on this page, so "previous" points right */}
+                  ⏭
                 </button>
                 <button
                   className="tab-btn"
@@ -647,12 +741,13 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
                 <button
                   className="icon-btn"
                   title="שעה הבאה"
+                  aria-label="שעה הבאה"
                   onClick={() => {
                     setIsPlaying(false);
                     setSelectedHour((prev) => (prev + 1) % puzzle.simulationDuration);
                   }}
                 >
-                  ⏭
+                  ⏮
                 </button>
               </div>
 
@@ -666,6 +761,8 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
                   setIsPlaying(false);
                 }}
                 className="scrubber-slider"
+                aria-label="בחירת שעה בסימולציה"
+                aria-valuetext={formatHour(selectedHour)}
               />
 
               <div className="playback-time-label">
@@ -758,8 +855,13 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
                               <div
                                 key={absHour}
                                 className={`timeline-cell ${isOn ? "on-state" : "off-state"} ${mismatch ? "mismatch" : ""}`}
-                                onMouseEnter={() => setHoveredHour(absHour)}
-                                onMouseLeave={() => setHoveredHour(null)}
+                                onPointerEnter={(e) => {
+                                  // Touch taps must not leave a "sticky" hover that overrides the player/scrubber
+                                  if (e.pointerType === "mouse") setHoveredHour(absHour);
+                                }}
+                                onPointerLeave={(e) => {
+                                  if (e.pointerType === "mouse") setHoveredHour(null);
+                                }}
                                 onClick={() => {
                                   setSelectedHour(absHour);
                                   setIsPlaying(false);
@@ -815,7 +917,7 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
                     }}
                   >
                     <div className="hover-clock-status">
-                      <strong>{config?.name || clockState.clockId}:</strong>
+                      <strong>{config ? displayName(config.name) : clockState.clockId}:</strong>
                       <span>
                         שן {clockState.position}:{" "}
                         <span className={`status-indicator ${config?.teeth[clockState.position] ? "on" : "off"}`}>

@@ -131,6 +131,59 @@ describe("Shabbat Clocks Simulation Engine", () => {
     expect(evaluateSolution(actual, diffLength)).toBe(false);
   });
 
+  describe("Edge cases: midnight, day boundaries and chains", () => {
+    it("a frozen downstream clock keeps its tooth across midnight and resumes from it", () => {
+      // Blue powers orange only at 22:00-23:59 each day -> orange advances 2 teeth per day.
+      const blue = createTestClock("b", [22, 23]);
+      const orange = createTestClock("o", [3]);
+      const { steps, timeline } = simulate([blue, orange], 48);
+      // Day 1 22:00, 23:00 -> orange teeth 0, 1; it then waits (frozen) on tooth 2 through midnight.
+      expect(steps[22].clocks[1].position).toBe(0);
+      expect(steps[23].clocks[1].position).toBe(1);
+      expect(steps[24].clocks[1].position).toBe(2);
+      expect(steps[45].clocks[1].position).toBe(2);
+      expect(steps[45].clocks[1].hasInputPower).toBe(false);
+      // Day 2 22:00 -> tooth 2, 23:00 -> tooth 3 (ON) -> output only at absolute hour 47.
+      expect(steps[46].clocks[1].position).toBe(2);
+      expect(steps[47].clocks[1].position).toBe(3);
+      expect(timeline.map((v, h) => (v ? h : -1)).filter((h) => h >= 0)).toEqual([47]);
+    });
+
+    it("the main clock wraps 23 -> 0 at every midnight over 72 hours", () => {
+      const { steps } = simulate([createTestClock("b", [])], 72);
+      expect(steps[23].clocks[0].position).toBe(23);
+      expect(steps[24].clocks[0].position).toBe(0);
+      expect(steps[47].clocks[0].position).toBe(23);
+      expect(steps[48].clocks[0].position).toBe(0);
+    });
+
+    it("power stops propagating at the first OFF clock in a 3-clock chain", () => {
+      const blue = createTestClock("b", Array.from({ length: 24 }, (_, i) => i));
+      const orange = createTestClock("o", []); // never passes power on
+      const purple = createTestClock("p", Array.from({ length: 24 }, (_, i) => i));
+      const { steps, timeline } = simulate([blue, orange, purple], 48);
+      expect(timeline.every((v) => !v)).toBe(true);
+      steps.forEach((s) => {
+        expect(s.clocks[1].hasInputPower).toBe(true);
+        expect(s.clocks[2].hasInputPower).toBe(false);
+        expect(s.clocks[2].position).toBe(0); // purple never moves
+      });
+    });
+
+    it("normalizes out-of-range and negative initial positions", () => {
+      expect(simulate([createTestClock("a", [1], 25)], 1).steps[0].clocks[0].position).toBe(1);
+      expect(simulate([createTestClock("a", [23], -1)], 1).steps[0].clocks[0].position).toBe(23);
+      expect(simulate([createTestClock("a", [23], -1)], 1).timeline[0]).toBe(true);
+    });
+
+    it("does not mutate the input clocks", () => {
+      const clock = createTestClock("a", [5], 7);
+      const before = JSON.stringify(clock);
+      simulate([clock], 48);
+      expect(JSON.stringify(clock)).toBe(before);
+    });
+  });
+
   describe("Puzzle Solutions Validation", () => {
     it("should successfully solve Puzzle 1 (tutorial-single-clock)", () => {
       const puzzle = puzzles.find((p) => p.id === "tutorial-single-clock")!;
