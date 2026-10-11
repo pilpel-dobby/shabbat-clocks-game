@@ -1,7 +1,16 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { simulate, evaluateSolution } from "./engine";
-import type { Clock, SimulationResult, ClockSimState } from "./engine";
+import type { Clock, ClockSimState } from "./engine";
 import { puzzles } from "./puzzles";
+import type { Difficulty } from "./puzzles";
+
+const ONBOARDING_SEEN_KEY = "shabbat-clocks-onboarding-seen";
+
+const difficultyClass: Record<Difficulty, string> = {
+  "קל": "easy",
+  "בינוני": "medium",
+  "קשה": "hard",
+};
 
 export default function App() {
   const [activePuzzleIndex, setActivePuzzleIndex] = useState<number>(0);
@@ -34,6 +43,23 @@ export default function App() {
     checkSolved();
   }, [activePuzzleIndex]);
 
+  const goToPuzzle = (idx: number) => {
+    setActivePuzzleIndex(idx);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  // Close the help modal with Escape
+  useEffect(() => {
+    if (!showHelpModal) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowHelpModal(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showHelpModal]);
+
+  const solvedCount = puzzles.filter((p) => solvedPuzzles[p.id]).length;
+
   const handleSolveChange = (puzzleId: string, solved: boolean) => {
     setSolvedPuzzles((prev) => {
       if (prev[puzzleId] === solved) return prev;
@@ -52,21 +78,27 @@ export default function App() {
       </header>
 
       {/* Tabs / Puzzle Selector & Help Button */}
-      <div className="tabs-container" style={{ flexWrap: "wrap", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+      <div className="progress-line" aria-live="polite">
+        פתרתם {solvedCount} מתוך {puzzles.length} חידות
+        {solvedCount === puzzles.length && " 🏆"}
+      </div>
+      <div className="tabs-container">
+        <nav className="puzzle-tabs" aria-label="בחירת חידה">
           {puzzles.map((p, idx) => (
             <button
               key={p.id}
               className={`tab-btn ${activePuzzleIndex === idx ? "active" : ""} ${solvedPuzzles[p.id] ? "solved-tab" : ""}`}
-              onClick={() => setActivePuzzleIndex(idx)}
+              onClick={() => goToPuzzle(idx)}
+              title={`${p.title} (${p.difficulty})${solvedPuzzles[p.id] ? " - נפתרה" : ""}`}
+              aria-current={activePuzzleIndex === idx ? "page" : undefined}
             >
-              {solvedPuzzles[p.id] ? "✓ " : ""}{p.title}
+              {solvedPuzzles[p.id] ? "✓ " : ""}
+              {idx + 1}. {p.shortTitle}
             </button>
           ))}
-        </div>
+        </nav>
         <button
-          className="tab-btn"
-          style={{ background: "rgba(16, 185, 129, 0.15)", borderColor: "rgba(16, 185, 129, 0.3)", color: "#34d399" }}
+          className="tab-btn help-btn"
           onClick={() => setShowHelpModal(true)}
         >
           ℹ️ מדריך חוקים ואודות
@@ -75,8 +107,14 @@ export default function App() {
 
       {/* Puzzle Information */}
       <section className="card puzzle-info-card">
-        <h2>{puzzle.title}</h2>
+        <div className="puzzle-title-row">
+          <h2>
+            {activePuzzleIndex + 1}. {puzzle.title}
+          </h2>
+          <span className={`difficulty-badge ${difficultyClass[puzzle.difficulty]}`}>{puzzle.difficulty}</span>
+        </div>
         <p>{puzzle.description}</p>
+        {puzzle.hint && <HintToggle key={puzzle.id} hint={puzzle.hint} />}
       </section>
 
       {/* Workspace Area - Keyed by puzzle.id to reset all state upon switching */}
@@ -86,7 +124,7 @@ export default function App() {
         onSolveStatusChange={(solved) => handleSolveChange(puzzle.id, solved)}
         onNextPuzzle={
           activePuzzleIndex < puzzles.length - 1
-            ? () => setActivePuzzleIndex(activePuzzleIndex + 1)
+            ? () => goToPuzzle(activePuzzleIndex + 1)
             : undefined
         }
       />
@@ -94,10 +132,16 @@ export default function App() {
       {/* Help & About Modal */}
       {showHelpModal && (
         <div className="modal-overlay" onClick={() => setShowHelpModal(false)}>
-          <div className="modal-content card" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="modal-content card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="help-modal-title"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="modal-header">
-              <h3>מדריך המשחק: שעוני שבת מכניים</h3>
-              <button className="icon-btn" onClick={() => setShowHelpModal(false)}>✕</button>
+              <h3 id="help-modal-title">מדריך המשחק: שעוני שבת מכניים</h3>
+              <button className="icon-btn" aria-label="סגירה" onClick={() => setShowHelpModal(false)} autoFocus>✕</button>
             </div>
             <div className="modal-body">
               <p>
@@ -127,16 +171,19 @@ export default function App() {
               <h4>איך פותרים?</h4>
               <ul>
                 <li>
-                  לחצו וגררו את העכבר (או האצבע בנייד) על גבי <strong>שיני השעון</strong> (24 שיניים, שן לכל שעה) כדי לקבוע מתי החוגה תהיה במצב פעיל.
+                  לחצו וגררו את העכבר (או האצבע בנייד) על גבי <strong>שיני השעון</strong> (24 שיניים, שן לכל שעה) כדי לקבוע מתי החוגה תהיה במצב פעיל. אפשר גם לעבור בין השיניים במקלדת (Tab) ולהפעיל עם רווח או Enter.
                 </li>
                 <li>
                   שנו את סדר השעונים בשרשרת באמצעות כפתורי החצים (▲ ו-▼).
                 </li>
                 <li>
-                  שימו לב לצירי הזמן בתחתית: <strong>תבנית היעד</strong> מציגה את הדפוס הדרוש, ו<strong>הפלט בפועל</strong> מציג את התוצאה של השעונים שלכם כרגע.
+                  שימו לב לצירי הזמן: <strong>תבנית היעד</strong> מציגה את הדפוס הדרוש, ו<strong>הפלט בפועל</strong> מציג את התוצאה של השעונים שלכם כרגע. שעות שלא תואמות ליעד מסומנות במסגרת אדומה, ומד ההתאמה מראה כמה שעות כבר נכונות.
                 </li>
                 <li>
                   הצביעו עם העכבר על שעה כלשהי בציר הזמן (או לחצו עליה) כדי לראות את המצב הפנימי המדויק של כל שעון (השעה הנוכחית שלו, וזרימת החשמל) באותה נקודת זמן!
+                </li>
+                <li>
+                  נתקעתם? לכל חידה יש כפתור <strong>רמז</strong> מתחת לתיאור.
                 </li>
               </ul>
             </div>
@@ -146,6 +193,18 @@ export default function App() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function HintToggle({ hint }: { hint: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="hint-wrap">
+      <button className="hint-btn" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        {open ? "הסתר רמז" : "💡 צריכים רמז?"}
+      </button>
+      {open && <p className="hint-text">{hint}</p>}
     </div>
   );
 }
@@ -173,10 +232,27 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
     return JSON.parse(JSON.stringify(puzzle.initialClocks)) as Clock[];
   });
 
-  // Simulation results
-  const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null);
-  const [isPending, setIsPending] = useState<boolean>(false);
-  const [isSolved, setIsSolved] = useState<boolean>(false);
+  // Simulation results. The engine is tiny (<= 72 ticks x 3 clocks), so it runs
+  // synchronously on every change for instant feedback (no debounce/spinner).
+  const simulationResult = useMemo(
+    () => simulate(clocks, puzzle.simulationDuration),
+    [clocks, puzzle.simulationDuration]
+  );
+  const isSolved = useMemo(
+    () => evaluateSolution(simulationResult.timeline, puzzle.targetTimeline),
+    [simulationResult, puzzle.targetTimeline]
+  );
+  const matchCount = useMemo(
+    () => simulationResult.timeline.filter((v, i) => v === puzzle.targetTimeline[i]).length,
+    [simulationResult, puzzle.targetTimeline]
+  );
+  const matchPercent = Math.round((matchCount / puzzle.simulationDuration) * 100);
+
+  // Onboarding is expanded on the very first visit only
+  const [onboardingOpen] = useState<boolean>(() => localStorage.getItem(ONBOARDING_SEEN_KEY) === null);
+  useEffect(() => {
+    localStorage.setItem(ONBOARDING_SEEN_KEY, "1");
+  }, []);
 
   // Hover state to show details for a specific hour
   const [hoveredHour, setHoveredHour] = useState<number | null>(null);
@@ -197,25 +273,14 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
     }
   }, [clocks, puzzle.id]);
 
-  // Run the simulation with debounce
+  // Report solved status to the parent only when it actually changes
+  const onSolveRef = useRef(onSolveStatusChange);
   useEffect(() => {
-    if (clocks.length === 0) return;
-
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setIsPending(true);
-    const handler = setTimeout(() => {
-      const result = simulate(clocks, puzzle.simulationDuration);
-      setSimulationResult(result);
-      const solved = evaluateSolution(result.timeline, puzzle.targetTimeline);
-      setIsSolved(solved);
-      setIsPending(false);
-      if (onSolveStatusChange) {
-        onSolveStatusChange(solved);
-      }
-    }, 400);
-
-    return () => clearTimeout(handler);
-  }, [clocks, puzzle.simulationDuration, puzzle.targetTimeline, onSolveStatusChange]);
+    onSolveRef.current = onSolveStatusChange;
+  });
+  useEffect(() => {
+    onSolveRef.current?.(isSolved);
+  }, [isSolved]);
 
   // Global mouseup/touchend/touchcancel cleanup
   useEffect(() => {
@@ -339,7 +404,7 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
 
   const activeHour = hoveredHour !== null ? hoveredHour : selectedHour;
 
-  const activeStep = simulationResult && activeHour !== null && activeHour < simulationResult.steps.length
+  const activeStep = activeHour !== null && activeHour < simulationResult.steps.length
     ? simulationResult.steps[activeHour]
     : null;
 
@@ -353,20 +418,22 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
   return (
     <div>
       {/* Onboarding Banner */}
-      <section className="card onboarding-card">
-        <h3>💡 איך משחקים? (מדריך מהיר)</h3>
+      <details className="card onboarding-card" open={onboardingOpen}>
+        <summary>💡 איך משחקים? (מדריך מהיר)</summary>
         <ul className="onboarding-list">
           <li><strong>כיוון שיניים:</strong> לחצו וגררו על פסי השיניים של השעונים. שן צבעונית = דולק (ON), שן כהה = כבוי (OFF).</li>
           <li><strong>כלל הזרימה:</strong> חשמל זורם מלמעלה למטה. שעון משני מסתובב <em>רק</em> כשהשעון שמעליו מספק לו חשמל!</li>
           <li><strong>מטרת החידה:</strong> שנו את שיני השעונים כך שפס ה-<strong>פלט בפועל</strong> יתאים בדיוק לפס ה-<strong>תבנית היעד</strong>.</li>
-          <li><strong>בדיקה בנייד:</strong> לחצו על שעה כלשהי בציר הזמן או השתמשו בנגן הסימולציה למטה כדי לראות את כיוון מחוגי השעון בזמן אמת.</li>
+          <li><strong>בדיקה בנייד:</strong> לחצו על שעה כלשהי בציר הזמן או השתמשו בנגן הסימולציה כדי לראות את כיוון מחוגי השעון בזמן אמת.</li>
+          <li><strong>מה עוד לא תואם?</strong> שעות בפלט שלא תואמות ליעד מסומנות במסגרת אדומה.</li>
         </ul>
-      </section>
+      </details>
 
       {/* Success Notification */}
       {isSolved && (
-        <div className="success-banner" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem" }}>
+        <div className="success-banner" role="status" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem" }}>
           <div>🎉 כל הכבוד! הצלחתם להתאים את תבנית שעוני השבת ליעד הנדרש!</div>
+          {!onNextPuzzle && <div className="success-sub">זו הייתה החידה האחרונה. אפשר לחזור לחידות שעוד לא פתרתם בלשוניות למעלה.</div>}
           {onNextPuzzle && (
             <button
               className="tab-btn active"
@@ -392,12 +459,6 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
         <section className="clocks-section">
           <div className="section-title">
             <span>הגדרת שעונים (זרימת חשמל מלמעלה למטה)</span>
-            {isPending && (
-              <div className="debounce-overlay">
-                <div className="spinner"></div>
-                <span>מחשב סימולציה...</span>
-              </div>
-            )}
           </div>
 
           {clocks.map((clock, idx) => {
@@ -437,7 +498,7 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
                 )}
                 <div
                   className="card clock-card"
-                  style={{ borderLeftColor: clock.color }}
+                  style={{ borderRightColor: clock.color }}
                 >
                   <div className="clock-header">
                     <div className="clock-title-wrap">
@@ -446,7 +507,10 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
                         style={{ color: clock.color, backgroundColor: clock.color }}
                       ></span>
                       <span className="clock-name">
-                        {clock.name} {idx === 0 ? "(חשמל ראשי)" : `(מקבל מ-${clocks[idx - 1]?.name || ""})`}
+                        {clock.name}
+                        <span className="clock-source">
+                          {idx === 0 ? "מחובר לחשמל הראשי" : `מקבל חשמל מ${clocks[idx - 1]?.name.split(" (")[0] || ""}`}
+                        </span>
                       </span>
                     </div>
 
@@ -498,6 +562,16 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
                             data-clock-id={clock.id}
                             data-tooth-index={tIdx}
                             title={`שעה ${tIdx.toString().padStart(2, "0")}:00 - לחצו וגררו לשינוי`}
+                            role="switch"
+                            aria-checked={isToothOn}
+                            aria-label={`${clock.name}, שן ${tIdx.toString().padStart(2, "0")}:00`}
+                            tabIndex={0}
+                            onKeyDown={(e) => {
+                              if (e.key === " " || e.key === "Enter") {
+                                e.preventDefault();
+                                handleToothState(clock.id, tIdx, !isToothOn);
+                              }
+                            }}
                             className={`tooth-cell ${isActiveDial ? "active-dial" : ""}`}
                             style={{
                               backgroundColor: isToothOn ? clock.color : "rgba(255, 255, 255, 0.05)",
@@ -534,7 +608,7 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
           })}
 
           <button className="tab-btn" onClick={resetPuzzle} style={{ alignSelf: "flex-start" }}>
-            אתחל חידה (Reset)
+            ↺ אתחול החידה
           </button>
         </section>
 
@@ -652,8 +726,17 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
           {/* Actual Simulation Output Timeline */}
           <div className="card timeline-card">
             <div className="timeline-title">💡 פלט בפועל (המצב הנוכחי)</div>
+            <div className={`match-meter ${isSolved ? "complete" : ""}`} aria-live="polite">
+              <div className="match-meter-text">
+                התאמה ליעד: {matchCount} מתוך {puzzle.simulationDuration} שעות
+                {!isSolved && ` · עוד ${puzzle.simulationDuration - matchCount} לתקן`}
+              </div>
+              <div className="match-meter-track">
+                <div className="match-meter-fill" style={{ width: `${matchPercent}%` }} />
+              </div>
+            </div>
             <div className="timeline-wrapper">
-              {simulationResult ? (
+              {(
                 <>
                   {Array.from({ length: Math.ceil(puzzle.simulationDuration / 24) }).map((_, dayIdx) => {
                     const startHour = dayIdx * 24;
@@ -670,17 +753,18 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
                         <div className="timeline-grid">
                           {dayHours.map((isOn, hOffset) => {
                             const absHour = startHour + hOffset;
+                            const mismatch = isOn !== puzzle.targetTimeline[absHour];
                             return (
                               <div
                                 key={absHour}
-                                className={`timeline-cell ${isOn ? "on-state" : "off-state"}`}
+                                className={`timeline-cell ${isOn ? "on-state" : "off-state"} ${mismatch ? "mismatch" : ""}`}
                                 onMouseEnter={() => setHoveredHour(absHour)}
                                 onMouseLeave={() => setHoveredHour(null)}
                                 onClick={() => {
                                   setSelectedHour(absHour);
                                   setIsPlaying(false);
                                 }}
-                                title={`הצביעו לפרטים • יום ${dayIdx + 1}, שעה ${hOffset.toString().padStart(2, "0")}:00: ${isOn ? "דולק" : "כבוי"}`}
+                                title={`הצביעו לפרטים • יום ${dayIdx + 1}, שעה ${hOffset.toString().padStart(2, "0")}:00: ${isOn ? "דולק" : "כבוי"}${mismatch ? (isOn ? " (צריך להיות כבוי)" : " (צריך להיות דולק)") : ""}`}
                                 style={{
                                   cursor: "pointer",
                                   ...(activeHour === absHour ? { outline: "2px solid #3b82f6", outlineOffset: "1px" } : {})
@@ -703,8 +787,6 @@ function PuzzleWorkspace({ puzzle, onSolveStatusChange, onNextPuzzle }: PuzzleWo
                     );
                   })}
                 </>
-              ) : (
-                <div style={{ color: "#64748b" }}>מחשב נתוני סימולציה...</div>
               )}
             </div>
           </div>

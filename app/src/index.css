@@ -72,9 +72,11 @@ body {
 /* Tab Selector */
 .tabs-container {
   display: flex;
-  justify-content: center;
-  gap: 1rem;
-  margin-bottom: 2rem;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
 }
 
 .tab-btn {
@@ -173,7 +175,7 @@ body {
 .clock-card {
   position: relative;
   overflow: hidden;
-  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
 }
 
 .clock-header {
@@ -671,3 +673,165 @@ body {
   }
 }
 
+
+/* ---- 2026-10 polish pass ---- */
+.puzzle-tabs {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.puzzle-tabs .tab-btn {
+  padding: 0.5rem 0.9rem;
+  font-size: 0.95rem;
+  white-space: nowrap;
+}
+
+.help-btn {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: #34d399;
+  white-space: nowrap;
+}
+
+.progress-line {
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.95rem;
+  margin: -0.5rem 0 1rem;
+}
+
+.puzzle-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.puzzle-title-row h2 {
+  margin: 0;
+}
+
+.difficulty-badge {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+.difficulty-badge.easy { color: #34d399; background: rgba(16, 185, 129, 0.1); }
+.difficulty-badge.medium { color: #fbbf24; background: rgba(234, 179, 8, 0.1); }
+.difficulty-badge.hard { color: #f87171; background: rgba(239, 68, 68, 0.1); }
+
+.hint-wrap {
+  margin-top: 0.75rem;
+}
+
+.hint-btn {
+  background: transparent;
+  border: 1px dashed rgba(234, 179, 8, 0.5);
+  color: #fbbf24;
+  border-radius: 8px;
+  padding: 0.3rem 0.8rem;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.hint-btn:hover { background: rgba(234, 179, 8, 0.1); }
+
+.puzzle-info-card p.hint-text {
+  margin-top: 0.5rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  background: rgba(234, 179, 8, 0.08);
+  color: #fde68a;
+  font-size: 0.95rem;
+}
+
+.onboarding-card summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #34d399;
+  font-size: 1.05rem;
+}
+.onboarding-card[open] summary {
+  margin-bottom: 0.5rem;
+}
+
+.success-sub {
+  font-size: 0.95rem;
+  font-weight: 400;
+  color: #a7f3d0;
+}
+
+/* Match meter (actual vs target) */
+.match-meter {
+  margin: 0 0 0.75rem;
+}
+.match-meter-text {
+  font-size: 0.85rem;
+  color: #cbd5e1;
+  margin-bottom: 0.3rem;
+}
+.match-meter-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+.match-meter-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #eab308, #f59e0b);
+  transition: width 0.25s ease;
+}
+.match-meter.complete .match-meter-fill {
+  background: #10b981;
+}
+.match-meter.complete .match-meter-text {
+  color: #34d399;
+}
+
+/* Hours in the actual output that differ from the target */
+.timeline-cell.mismatch {
+  box-shadow: inset 0 0 0 2px #ef4444;
+}
+
+/* Keyboard focus */
+.tooth-cell:focus-visible,
+.tab-btn:focus-visible,
+.icon-btn:focus-visible,
+.hint-btn:focus-visible,
+.onboarding-card summary:focus-visible {
+  outline: 2px solid #fbbf24;
+  outline-offset: 2px;
+}
+
+.clock-source {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: #94a3b8;
+}
+
+@media (max-width: 640px) {
+  #root {
+    padding: 1rem 0.6rem;
+  }
+  .clock-header {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .puzzle-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    width: 100%;
+    padding-bottom: 0.25rem;
+    scrollbar-width: thin;
+  }
+  .help-btn {
+    width: 100%;
+  }
+  .puzzle-info-card h2 {
+    font-size: 1.25rem;
+  }
+}
